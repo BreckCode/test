@@ -1,5 +1,32 @@
-const API_KEY = 'df3bd8cb72bf62fb5febd68d61d27d59';
-const BASE_URL = 'https://api.openweathermap.org/data/2.5';
+const GEOCODING_URL = 'https://geocoding-api.open-meteo.com/v1/search';
+const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast';
+
+const WMO_CODES = {
+  0: { description: 'Clear sky', icon: '☀️' },
+  1: { description: 'Mainly clear', icon: '🌤️' },
+  2: { description: 'Partly cloudy', icon: '⛅' },
+  3: { description: 'Overcast', icon: '☁️' },
+  45: { description: 'Foggy', icon: '🌫️' },
+  48: { description: 'Depositing rime fog', icon: '🌫️' },
+  51: { description: 'Light drizzle', icon: '🌦️' },
+  53: { description: 'Moderate drizzle', icon: '🌦️' },
+  55: { description: 'Dense drizzle', icon: '🌦️' },
+  61: { description: 'Slight rain', icon: '🌧️' },
+  63: { description: 'Moderate rain', icon: '🌧️' },
+  65: { description: 'Heavy rain', icon: '🌧️' },
+  71: { description: 'Slight snow', icon: '🌨️' },
+  73: { description: 'Moderate snow', icon: '🌨️' },
+  75: { description: 'Heavy snow', icon: '🌨️' },
+  77: { description: 'Snow grains', icon: '🌨️' },
+  80: { description: 'Slight rain showers', icon: '🌦️' },
+  81: { description: 'Moderate rain showers', icon: '🌧️' },
+  82: { description: 'Violent rain showers', icon: '🌧️' },
+  85: { description: 'Slight snow showers', icon: '🌨️' },
+  86: { description: 'Heavy snow showers', icon: '🌨️' },
+  95: { description: 'Thunderstorm', icon: '⛈️' },
+  96: { description: 'Thunderstorm with slight hail', icon: '⛈️' },
+  99: { description: 'Thunderstorm with heavy hail', icon: '⛈️' },
+};
 
 const searchForm = document.getElementById('search-form');
 const cityInput = document.getElementById('city-input');
@@ -17,98 +44,83 @@ searchForm.addEventListener('submit', async (e) => {
   forecastSection.classList.add('hidden');
 
   try {
-    const [weather, forecast] = await Promise.all([
-      fetchWeather(city),
-      fetchForecast(city),
-    ]);
-    displayWeather(weather);
-    displayForecast(forecast);
+    const location = await geocodeCity(city);
+    const weather = await fetchWeather(location.latitude, location.longitude);
+    displayWeather(weather, location);
+    displayForecast(weather);
   } catch (err) {
     showError(err.message);
   }
 });
 
-async function fetchWeather(city) {
-  const res = await fetch(
-    `${BASE_URL}/weather?q=${encodeURIComponent(city)}&units=metric&appid=${API_KEY}`
-  );
-  if (!res.ok) {
-    if (res.status === 404) throw new Error('City not found. Please check the name and try again.');
-    if (res.status === 401) throw new Error('Invalid API key. Please add your OpenWeatherMap API key in app.js.');
-    throw new Error('Failed to fetch weather data.');
+async function geocodeCity(city) {
+  const res = await fetch(`${GEOCODING_URL}?name=${encodeURIComponent(city)}&count=1`);
+  if (!res.ok) throw new Error('Failed to search for city.');
+  const data = await res.json();
+  if (!data.results || data.results.length === 0) {
+    throw new Error('City not found. Please check the name and try again.');
   }
+  return data.results[0];
+}
+
+async function fetchWeather(lat, lon) {
+  const params = new URLSearchParams({
+    latitude: lat,
+    longitude: lon,
+    current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,surface_pressure',
+    daily: 'weather_code,temperature_2m_max,temperature_2m_min',
+    timezone: 'auto',
+    forecast_days: '6',
+  });
+  const res = await fetch(`${WEATHER_URL}?${params}`);
+  if (!res.ok) throw new Error('Failed to fetch weather data.');
   return res.json();
 }
 
-async function fetchForecast(city) {
-  const res = await fetch(
-    `${BASE_URL}/forecast?q=${encodeURIComponent(city)}&units=metric&appid=${API_KEY}`
-  );
-  if (!res.ok) throw new Error('Failed to fetch forecast data.');
-  return res.json();
+function getWeatherInfo(code) {
+  return WMO_CODES[code] || { description: 'Unknown', icon: '❓' };
 }
 
-function displayWeather(data) {
-  document.getElementById('city-name').textContent = `${data.name}, ${data.sys.country}`;
-  document.getElementById('weather-description').textContent = data.weather[0].description;
-  document.getElementById('icon').src = `https://openweathermap.org/img/wn/${data.weather[0].icon}@2x.png`;
-  document.getElementById('icon').alt = data.weather[0].description;
-  document.getElementById('temperature').textContent = `${Math.round(data.main.temp)}°C`;
-  document.getElementById('feels-like').textContent = `${Math.round(data.main.feels_like)}°C`;
-  document.getElementById('humidity').textContent = `${data.main.humidity}%`;
-  document.getElementById('wind').textContent = `${Math.round(data.wind.speed * 3.6)} km/h`;
-  document.getElementById('pressure').textContent = `${data.main.pressure} hPa`;
+function displayWeather(data, location) {
+  const current = data.current;
+  const info = getWeatherInfo(current.weather_code);
+
+  document.getElementById('city-name').textContent =
+    `${location.name}, ${location.country_code || location.country || ''}`;
+  document.getElementById('weather-description').textContent = info.description;
+  document.getElementById('icon').textContent = info.icon;
+  document.getElementById('temperature').textContent = `${Math.round(current.temperature_2m)}°C`;
+  document.getElementById('feels-like').textContent = `${Math.round(current.apparent_temperature)}°C`;
+  document.getElementById('humidity').textContent = `${current.relative_humidity_2m}%`;
+  document.getElementById('wind').textContent = `${Math.round(current.wind_speed_10m)} km/h`;
+  document.getElementById('pressure').textContent = `${Math.round(current.surface_pressure)} hPa`;
 
   weatherCard.classList.remove('hidden');
 }
 
 function displayForecast(data) {
-  const dailyForecasts = getDailyForecasts(data.list);
   const container = document.getElementById('forecast-cards');
   container.innerHTML = '';
 
-  dailyForecasts.forEach((day) => {
+  // Skip today (index 0), show next 5 days
+  for (let i = 1; i <= 5 && i < data.daily.time.length; i++) {
+    const info = getWeatherInfo(data.daily.weather_code[i]);
     const card = document.createElement('div');
     card.className = 'forecast-card';
     card.innerHTML = `
-      <div class="day">${formatDay(day.dt)}</div>
-      <img src="https://openweathermap.org/img/wn/${day.weather[0].icon}@2x.png" alt="${day.weather[0].description}">
-      <div class="temp">${Math.round(day.main.temp_max)}°</div>
-      <div class="temp-low">${Math.round(day.main.temp_min)}°</div>
+      <div class="day">${formatDay(data.daily.time[i])}</div>
+      <div class="forecast-icon">${info.icon}</div>
+      <div class="temp">${Math.round(data.daily.temperature_2m_max[i])}°</div>
+      <div class="temp-low">${Math.round(data.daily.temperature_2m_min[i])}°</div>
     `;
     container.appendChild(card);
-  });
+  }
 
   forecastSection.classList.remove('hidden');
 }
 
-function getDailyForecasts(list) {
-  const days = {};
-  list.forEach((item) => {
-    const date = item.dt_txt.split(' ')[0];
-    const today = new Date().toISOString().split('T')[0];
-    if (date === today) return;
-
-    if (!days[date]) {
-      days[date] = { ...item };
-    } else {
-      if (item.main.temp_max > days[date].main.temp_max) {
-        days[date].main.temp_max = item.main.temp_max;
-      }
-      if (item.main.temp_min < days[date].main.temp_min) {
-        days[date].main.temp_min = item.main.temp_min;
-      }
-      // Use the midday reading for icon/description
-      if (item.dt_txt.includes('12:00:00')) {
-        days[date].weather = item.weather;
-      }
-    }
-  });
-  return Object.values(days).slice(0, 5);
-}
-
-function formatDay(timestamp) {
-  return new Date(timestamp * 1000).toLocaleDateString('en-US', { weekday: 'short' });
+function formatDay(dateStr) {
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' });
 }
 
 function showError(message) {

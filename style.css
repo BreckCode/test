@@ -93,10 +93,9 @@ h1 {
   margin-top: 4px;
 }
 
-.weather-icon img {
-  width: 100px;
-  height: 100px;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+.weather-icon span {
+  font-size: 5rem;
+  line-height: 1.2;
 }
 
 .weather-temp {
@@ -161,9 +160,9 @@ h1 {
   opacity: 0.8;
 }
 
-.forecast-card img {
-  width: 48px;
-  height: 48px;
+.forecast-icon {
+  font-size: 2rem;
+  margin: 4px 0;
 }
 
 .forecast-card .temp {
